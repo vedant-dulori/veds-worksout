@@ -39,6 +39,8 @@ Do not use a Supabase service-role key in this frontend and never commit `.env.l
 3. Deploy. `vercel.json` configures the Vite build and `dist` output directory.
 4. If this is the first deployment, copy its final URL into the Supabase Site URL, then redeploy.
 
+If you installed the official Supabase integration from the Vercel Marketplace, RepTrack also accepts the integration-provided `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` variables. Do not map or expose `SUPABASE_SERVICE_ROLE_KEY`.
+
 The anonymous key is intentionally public. Security depends on keeping row-level security and Storage policies enabled. Database backups and retention follow the selected Supabase plan.
 
 ## Operational notes
