@@ -38,6 +38,12 @@ type State = {
   editingWorkoutDate?: string
   planEditorOpen: boolean
   workoutNote: string
+  progressFilterPlanId?: string
+  progressFilterExerciseId?: string
+  progressMetricModeByExercise?: Record<string, 'max' | 'avg'>
+  progressView: 'trend' | 'compare'
+  compareWorkoutIdA?: string
+  compareWorkoutIdB?: string
   restTimerEnd?: number
   exerciseTimer?: {
     end?: number
@@ -139,6 +145,7 @@ const defaults: State = {
   activeStepIndex: 0,
   workoutView: 'focus',
   planEditorOpen: false,
+  progressView: 'trend',
 }
 let state: State = {
   ...defaults,
@@ -308,6 +315,18 @@ function streak() {
 function bestWeight(exerciseId: string) {
   return Math.max(0, ...state.workouts.flatMap((workout) =>
     workout.logs.filter((log) => log.exerciseId === exerciseId).flatMap((log) => log.sets.map((set) => set.weight))))
+}
+function exerciseMetric(workout: Workout, exercise: Exercise, mode: 'max' | 'avg' = 'max') {
+  const log = workout.logs.find((item) => item.exerciseId === exercise.id)
+  const completedSets = log?.sets.filter((set) => set.completed) ?? []
+  if (!completedSets.length) return undefined
+  const aggregate = (values: number[]) => mode === 'avg'
+    ? Math.round(values.reduce((sum, item) => sum + item, 0) / values.length * 10) / 10
+    : Math.max(...values)
+  const weightValue = aggregate(completedSets.map((set) => set.weight))
+  if (weightValue > 0) return { value: weightValue, unit: 'lb' }
+  const repsValue = aggregate(completedSets.map((set) => set.reps))
+  return { value: repsValue, unit: exercise.timed ? 'sec' : 'reps' }
 }
 function workoutVolume(workout: Workout) {
   const workoutPlan = plans.find((item) => item.id === workout.planId)
@@ -614,12 +633,105 @@ function renderWorkout() {
   </section>${state.planEditorOpen ? renderPlanEditor() : ''}`)
 }
 
+function renderCompareSection(filterPlan: Plan | undefined, filteredWorkouts: Workout[]) {
+  if (!filterPlan) return `<section class="panel"><p class="empty-chart">Pick a plan above to compare two sessions.</p></section>`
+  if (filteredWorkouts.length < 2) return `<section class="panel"><p class="empty-chart">Log at least two sessions for this plan to compare.</p></section>`
+
+  const idA = state.compareWorkoutIdA && filteredWorkouts.some((item) => item.id === state.compareWorkoutIdA)
+    ? state.compareWorkoutIdA : filteredWorkouts[1].id
+  const idB = state.compareWorkoutIdB && filteredWorkouts.some((item) => item.id === state.compareWorkoutIdB)
+    ? state.compareWorkoutIdB : filteredWorkouts[0].id
+  const workoutA = filteredWorkouts.find((item) => item.id === idA)!
+  const workoutB = filteredWorkouts.find((item) => item.id === idB)!
+  const dayLabel = (workout: Workout) => formatDate(workout.date, { month: 'short', day: 'numeric' })
+  const pickerA = filteredWorkouts.map((item) =>
+    `<button class="filter-chip ${item.id === idA ? 'active' : ''}" data-compare-a="${item.id}">${dayLabel(item)}</button>`).join('')
+  const pickerB = filteredWorkouts.map((item) =>
+    `<button class="filter-chip ${item.id === idB ? 'active' : ''}" data-compare-b="${item.id}">${dayLabel(item)}</button>`).join('')
+
+  const setsText = (log: Log | undefined, exercise: Exercise) => {
+    const completed = log?.sets.filter((set) => set.completed) ?? []
+    if (!completed.length) return '—'
+    return completed.map((set) => exercise.timed ? `${set.reps} sec` : `${set.weight} lb x ${set.reps}`).join(', ')
+  }
+
+  const blocks = filterPlan.blocks.map((block) => {
+    const exerciseRows = filterPlan.exercises.filter((item) => item.blockId === block.id).map((exercise) => {
+      const logA = workoutA.logs.find((item) => item.exerciseId === exercise.id)
+      const logB = workoutB.logs.find((item) => item.exerciseId === exercise.id)
+      const mode = state.progressMetricModeByExercise?.[exercise.id] ?? 'max'
+      const metricA = exerciseMetric(workoutA, exercise, mode)
+      const metricB = exerciseMetric(workoutB, exercise, mode)
+      const delta = metricA && metricB
+        ? (() => {
+            const diff = Math.round((metricB.value - metricA.value) * 10) / 10
+            const unit = metricB.unit === 'lb' ? ' lb' : ` ${metricB.unit}`
+            return `<span class="${diff >= 0 ? 'up' : 'down'}">${diff >= 0 ? '+' : ''}${diff}${unit}</span>`
+          })()
+        : '—'
+      return `<div class="compare-row"><strong>${exercise.name}</strong><div class="compare-side" data-label="Day A">${setsText(logA, exercise)}</div><div class="compare-side" data-label="Day B">${setsText(logB, exercise)}</div><div class="compare-delta">${delta}</div></div>`
+    }).join('')
+    return `<section class="compare-block"><header>${block.name}</header>${exerciseRows}</section>`
+  }).join('')
+
+  const totalA = workoutVolume(workoutA)
+  const totalB = workoutVolume(workoutB)
+  const totalDiff = totalB - totalA
+
+  return `<div class="compare-pickers"><div><small>DAY A</small><div class="filter-row">${pickerA}</div></div><div><small>DAY B</small><div class="filter-row">${pickerB}</div></div></div>
+    <section class="panel compare-summary"><div><small>${formatDate(workoutA.date, { weekday: 'short', month: 'short', day: 'numeric' })}</small><strong>${totalA.toLocaleString()} lb</strong></div><div class="compare-vs">VS</div><div><small>${formatDate(workoutB.date, { weekday: 'short', month: 'short', day: 'numeric' })}</small><strong>${totalB.toLocaleString()} lb</strong></div><div class="compare-total-delta ${totalDiff >= 0 ? 'up' : 'down'}">${totalDiff >= 0 ? '+' : ''}${totalDiff.toLocaleString()} lb</div></section>
+    <section class="panel compare-table">${blocks}</section>`
+}
+
 function renderProgress() {
   const workouts = [...state.workouts].sort((a, b) => b.date.localeCompare(a.date))
   const totalLoad = workouts.reduce((sum, workout) => sum + workoutVolume(workout), 0)
   const totalHoldSeconds = workouts.reduce((sum, workout) => sum + workoutHoldSeconds(workout), 0)
   const weekly = workouts.filter((workout) => workout.date >= weekStart()).length
-  const rows = workouts.slice(0, 7).map((workout) => {
+  const filterId = state.progressFilterPlanId
+  const filteredWorkouts = filterId ? workouts.filter((workout) => workout.planId === filterId) : workouts
+  const trainedPlanIds = new Set(workouts.map((workout) => workout.planId))
+  const filterChips = [`<button class="filter-chip ${!filterId ? 'active' : ''}" data-progress-plan="">All plans</button>`]
+    .concat(plans.filter((item) => trainedPlanIds.has(item.id)).map((item) =>
+      `<button class="filter-chip ${filterId === item.id ? 'active' : ''}" data-progress-plan="${item.id}">${item.name}</button>`))
+    .join('')
+
+  const filterPlan = filterId ? plans.find((item) => item.id === filterId) : undefined
+  const trainedExerciseIds = new Set(filteredWorkouts.flatMap((workout) => workout.logs.map((log) => log.exerciseId)))
+  const exerciseId = filterPlan ? state.progressFilterExerciseId : undefined
+  const exercise = exerciseId ? filterPlan?.exercises.find((item) => item.id === exerciseId) : undefined
+  const exerciseChips = filterPlan
+    ? `<div class="filter-row">${[`<button class="filter-chip ${!exerciseId ? 'active' : ''}" data-progress-exercise="">Total load</button>`]
+        .concat(filterPlan.exercises.filter((item) => trainedExerciseIds.has(item.id)).map((item) =>
+          `<button class="filter-chip ${exerciseId === item.id ? 'active' : ''}" data-progress-exercise="${item.id}">${item.name}</button>`))
+        .join('')}</div>`
+    : ''
+  const metricMode = exercise ? state.progressMetricModeByExercise?.[exercise.id] ?? 'max' : 'max'
+  const metricToggle = exercise
+    ? `<div class="view-switch small"><button class="${metricMode === 'max' ? 'active' : ''}" data-progress-metric="max">Max set</button><button class="${metricMode === 'avg' ? 'active' : ''}" data-progress-metric="avg">Average</button></div>`
+    : ''
+
+  const relevantWorkouts = exercise ? filteredWorkouts.filter((workout) => exerciseMetric(workout, exercise, metricMode)) : filteredWorkouts
+  const oldestFiltered = relevantWorkouts[relevantWorkouts.length - 1]
+  const newestFiltered = relevantWorkouts[0]
+  const metric = exercise
+    ? (workout: Workout) => exerciseMetric(workout, exercise, metricMode)?.value ?? 0
+    : workoutVolume
+  const metricUnit = exercise && newestFiltered ? exerciseMetric(newestFiltered, exercise, metricMode)?.unit ?? 'lb' : 'lb'
+  const oldestValue = oldestFiltered ? metric(oldestFiltered) : 0
+  const newestValue = newestFiltered ? metric(newestFiltered) : 0
+  const improvement = relevantWorkouts.length > 1 && oldestValue > 0
+    ? Math.round((newestValue - oldestValue) / oldestValue * 100)
+    : undefined
+  const improvementAbsolute = relevantWorkouts.length > 1 && oldestValue === 0 && newestValue !== oldestValue
+    ? newestValue - oldestValue
+    : undefined
+  const trendLabel = exercise
+    ? exercise.name
+    : filterId
+      ? plans.find((item) => item.id === filterId)?.name ?? 'Selected plan'
+      : 'All plans'
+  const rows = filteredWorkouts.slice(0, 7).map((workout) => {
     const workoutPlan = plans.find((item) => item.id === workout.planId)!
     const load = workoutVolume(workout)
     const details = workoutPlan.blocks.map((block, blockIndex) => {
@@ -642,14 +754,24 @@ function renderProgress() {
     const expanded = state.expandedWorkoutId === workout.id
     return `<div class="history-item"><button class="history-row ${expanded ? 'expanded' : ''}" data-history="${workout.id}"><span class="history-icon">${icon('weight')}</span><span><strong>${workoutPlan.name}</strong><small>${formatDate(workout.date, { weekday: 'short', month: 'short', day: 'numeric' })}</small></span><span><strong>${workout.logs.length}/${workoutPlan.exercises.length}</strong><small>exercises</small></span><span><strong>${load.toLocaleString()} lb</strong><small>total volume</small></span><span class="history-chevron">${icon('next')}</span></button>${expanded ? `<div class="history-detail"><div class="history-detail-heading"><div><strong>Session breakdown</strong><small>Every completed round</small></div><div class="history-actions"><button data-edit-workout="${workout.id}">Edit</button><button data-delete-workout="${workout.id}">Delete</button></div></div>${details}${workout.note ? `<p class="history-note"><strong>Session note</strong>${escapeHtml(workout.note)}</p>` : ''}</div>` : ''}</div>`
   }).join('')
-  const values = workouts.slice(0, 8).reverse().map(workoutVolume)
+  const series = relevantWorkouts.slice(0, 8).reverse().map((workout) => ({ date: workout.date, value: metric(workout) }))
+  const values = series.map((item) => item.value)
   const max = Math.max(1, ...values)
-  const bars = values.map((value, index) => `<div class="chart-column"><div style="height:${Math.max(10, value / max * 100)}%"></div><small>W${index + 1}</small></div>`).join('')
+  const bars = series.length
+    ? series.map((item) => {
+        const valueLabel = exercise
+          ? `${item.value}${metricUnit === 'lb' ? ' lb' : ` ${metricUnit}`}`
+          : `${item.value.toLocaleString()} lb`
+        return `<div class="chart-column"><span class="chart-value">${valueLabel}</span><div style="height:${Math.max(10, item.value / max * 75)}%"></div><small>${formatDate(item.date, { month: 'short', day: 'numeric' })}</small></div>`
+      }).join('')
+    : `<p class="empty-chart">${exercise ? 'No logged sets for this exercise yet.' : 'No sessions logged for this plan yet.'}</p>`
   app.innerHTML = shell(`<section class="page">
-    <div class="hero compact"><div><p class="eyebrow">YOUR JOURNEY</p><h1>Progress, <em>proven.</em></h1><p>Consistency compounds. Here is the work you've put in.</p></div></div>
-    <div class="metrics"><div><span>${icon('calendar')}</span><small>WORKOUTS</small><strong>${workouts.length}</strong><p>all time</p></div><div><span>${icon('trend')}</span><small>TOTAL LOAD</small><strong>${totalLoad.toLocaleString()}</strong><p>${totalHoldSeconds ? `${Math.round(totalHoldSeconds / 60)} min holds tracked separately` : 'weighted reps only'}</p></div><div><span>${icon('bolt')}</span><small>PLANS TRAINED</small><strong>${new Set(workouts.map((workout) => workout.planId)).size}</strong><p>in rotation</p></div><div><span>🔥</span><small>STREAK</small><strong>${streak()}</strong><p>weeks strong</p></div></div>
-    <div class="progress-grid"><section class="panel"><div class="panel-heading"><div><p class="eyebrow">TRAINING LOAD</p><h2>Session trend</h2></div><span>Last 8 workouts</span></div><div class="bar-chart">${bars}</div></section><section class="panel goal"><p class="eyebrow">WEEKLY TARGET</p><h2>Build the habit</h2><div><strong>${weekly}</strong><span>/ 3 sessions</span></div><div class="goal-track"><span style="width:${Math.min(100, weekly / 3 * 100)}%"></span></div><p>One strong week at a time. Keep showing up.</p></section></div>
-    <section class="panel history"><div class="panel-heading"><div><p class="eyebrow">WORKOUT LOG</p><h2>Recent sessions</h2></div></div><div>${rows}</div></section>
+    <div class="hero compact"><div><p class="eyebrow">YOUR JOURNEY</p><h1>Progress, <em>proven.</em></h1><p>Consistency compounds. Here is the work you've put in.</p></div><div class="view-switch"><button class="${state.progressView === 'trend' ? 'active' : ''}" data-progress-view="trend">Trend</button><button class="${state.progressView === 'compare' ? 'active' : ''}" data-progress-view="compare">Compare days</button></div></div>
+    <div class="metrics"><div><span>${icon('calendar')}</span><small>WORKOUTS</small><strong>${workouts.length}</strong><p>all time</p></div><div><span>${icon('trend')}</span><small>TOTAL LOAD</small><strong>${totalLoad.toLocaleString()}</strong><p>${totalHoldSeconds ? `${Math.round(totalHoldSeconds / 60)} min holds tracked separately` : 'weighted reps only'}</p></div><div><span>${icon('bolt')}</span><small>PLANS TRAINED</small><strong>${trainedPlanIds.size}</strong><p>in rotation</p></div><div><span>🔥</span><small>STREAK</small><strong>${streak()}</strong><p>weeks strong</p></div></div>
+    <div class="filter-row">${filterChips}</div>
+    ${state.progressView === 'compare' ? renderCompareSection(filterPlan, filteredWorkouts) : `${exerciseChips}
+    <div class="progress-grid"><section class="panel"><div class="panel-heading"><div><p class="eyebrow">${exercise ? 'EXERCISE TREND' : 'TRAINING LOAD'}</p><h2>${trendLabel}</h2></div><div class="panel-heading-right">${metricToggle}<span>${improvement !== undefined ? `<strong class="${improvement >= 0 ? 'up' : 'down'}">${improvement >= 0 ? '+' : ''}${improvement}%</strong> since ${formatDate(oldestFiltered.date, { month: 'short', day: 'numeric' })}` : improvementAbsolute !== undefined ? `<strong class="${improvementAbsolute >= 0 ? 'up' : 'down'}">${improvementAbsolute >= 0 ? '+' : ''}${improvementAbsolute} ${metricUnit}</strong> since ${formatDate(oldestFiltered.date, { month: 'short', day: 'numeric' })}` : `Last ${values.length} workouts`}</span></div></div><div class="bar-chart">${bars}</div></section><section class="panel goal"><p class="eyebrow">WEEKLY TARGET</p><h2>Build the habit</h2><div><strong>${weekly}</strong><span>/ 3 sessions</span></div><div class="goal-track"><span style="width:${Math.min(100, weekly / 3 * 100)}%"></span></div><p>One strong week at a time. Keep showing up.</p></section></div>
+    <section class="panel history"><div class="panel-heading"><div><p class="eyebrow">WORKOUT LOG</p><h2>Recent sessions</h2></div></div><div>${rows || `<p class="empty-chart">No sessions logged for this plan yet.</p>`}</div></section>`}
   </section>`)
 }
 
@@ -958,6 +1080,42 @@ document.addEventListener('click', async (event) => {
   if (historyButton) {
     state.expandedWorkoutId = state.expandedWorkoutId === historyButton.dataset.history ? undefined : historyButton.dataset.history
     save(); renderProgress(); return
+  }
+  const progressFilter = target.closest<HTMLElement>('[data-progress-plan]')
+  if (progressFilter) {
+    state.progressFilterPlanId = progressFilter.dataset.progressPlan || undefined
+    state.progressFilterExerciseId = undefined
+    state.compareWorkoutIdA = undefined
+    state.compareWorkoutIdB = undefined
+    renderProgress(); return
+  }
+  const progressViewToggle = target.closest<HTMLElement>('[data-progress-view]')
+  if (progressViewToggle) {
+    state.progressView = progressViewToggle.dataset.progressView as 'trend' | 'compare'
+    renderProgress(); return
+  }
+  const compareA = target.closest<HTMLElement>('[data-compare-a]')
+  if (compareA) {
+    state.compareWorkoutIdA = compareA.dataset.compareA
+    renderProgress(); return
+  }
+  const compareB = target.closest<HTMLElement>('[data-compare-b]')
+  if (compareB) {
+    state.compareWorkoutIdB = compareB.dataset.compareB
+    renderProgress(); return
+  }
+  const progressExerciseFilter = target.closest<HTMLElement>('[data-progress-exercise]')
+  if (progressExerciseFilter) {
+    state.progressFilterExerciseId = progressExerciseFilter.dataset.progressExercise || undefined
+    renderProgress(); return
+  }
+  const progressMetricToggle = target.closest<HTMLElement>('[data-progress-metric]')
+  if (progressMetricToggle && state.progressFilterExerciseId) {
+    state.progressMetricModeByExercise = {
+      ...state.progressMetricModeByExercise,
+      [state.progressFilterExerciseId]: progressMetricToggle.dataset.progressMetric as 'max' | 'avg',
+    }
+    renderProgress(); return
   }
   const tab = target.closest<HTMLElement>('[data-tab]')
   if (tab) {
