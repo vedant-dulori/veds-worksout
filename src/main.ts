@@ -363,6 +363,29 @@ function durationLabel(seconds: number) {
     ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
     : `${minutes}:${String(secs).padStart(2, '0')}`
 }
+let audioContext: AudioContext | undefined
+function playBeep(count = 1) {
+  try {
+    audioContext ??= new AudioContext()
+    if (audioContext.state === 'suspended') void audioContext.resume()
+    for (let index = 0; index < count; index++) {
+      const start = audioContext.currentTime + index * 0.18
+      const oscillator = audioContext.createOscillator()
+      const gain = audioContext.createGain()
+      oscillator.type = 'sine'
+      oscillator.frequency.value = 880
+      gain.gain.setValueAtTime(0.0001, start)
+      gain.gain.exponentialRampToValueAtTime(0.3, start + 0.01)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.15)
+      oscillator.connect(gain)
+      gain.connect(audioContext.destination)
+      oscillator.start(start)
+      oscillator.stop(start + 0.16)
+    }
+  } catch (error) {
+    console.error('Unable to play timer sound.', error)
+  }
+}
 function exerciseTimerSeconds() {
   const timer = state.exerciseTimer
   if (!timer) return 0
@@ -386,11 +409,16 @@ function icon(name: Icon) {
 function timerOverlay() {
   const remaining = restSeconds()
   const exerciseRemaining = exerciseTimerSeconds()
-  return state.exerciseTimer
-    ? `<aside class="exercise-timer"><div class="timer-pulse"></div><div class="exercise-timer-copy"><small>LIVE EXERCISE TIMER</small><strong>${state.exerciseTimer.label}</strong></div><b data-exercise-clock>${restLabel(exerciseRemaining)}</b><button data-pause-exercise>${state.exerciseTimer.end ? 'Pause' : 'Resume'}</button><button data-add-exercise>+10s</button><button data-stop-exercise>Stop</button></aside>`
-    : remaining
-      ? `<aside class="rest-timer"><span>${icon('calendar')}</span><div><small>REST TIMER</small><strong data-rest-clock>${restLabel(remaining)}</strong></div><button data-add-rest>+30s</button><button data-skip-rest>Skip</button></aside>`
-      : ''
+  if (state.exerciseTimer) {
+    return `<aside class="exercise-timer"><div class="timer-pulse"></div><div class="exercise-timer-copy"><small>LIVE EXERCISE TIMER</small><strong>${state.exerciseTimer.label}</strong></div><b data-exercise-clock>${restLabel(exerciseRemaining)}</b><button data-pause-exercise>${state.exerciseTimer.end ? 'Pause' : 'Resume'}</button><button data-add-exercise>+10s</button><button data-stop-exercise>Stop</button></aside>`
+  }
+  if (!remaining) return ''
+  const steps = workoutSteps(plan())
+  const nextStep = steps[state.activeStepIndex]
+  const upNext = nextStep
+    ? `<div class="up-next"><small>UP NEXT</small><h3>${nextStep.exercise.name}</h3><p>${nextStep.exercise.reps}${nextStep.exercise.timed ? '' : ' reps'} · ${nextStep.block.name} · Round ${nextStep.roundIndex + 1}</p></div>`
+    : `<div class="up-next"><small>UP NEXT</small><h3>Final round complete</h3></div>`
+  return `<div class="rest-overlay"><div class="rest-card"><p class="eyebrow">REST</p><strong class="rest-clock-big" data-rest-clock>${restLabel(remaining)}</strong><div class="rest-actions"><button data-add-rest>+30s</button><button data-skip-rest>Skip rest</button></div>${upNext}</div></div>`
 }
 function shell(content: string) {
   return `<div class="app-shell">
@@ -1407,6 +1435,15 @@ async function initialize() {
 
 void initialize()
 
+document.addEventListener('pointerdown', () => {
+  try {
+    audioContext ??= new AudioContext()
+    if (audioContext.state === 'suspended') void audioContext.resume()
+  } catch (error) {
+    console.error('Unable to unlock audio for timer sounds.', error)
+  }
+}, { once: true })
+
 window.setInterval(() => {
   if (state.sessionStatus === 'active' && state.sessionStartedAt) {
     const label = durationLabel(sessionElapsedSeconds())
@@ -1425,6 +1462,7 @@ window.setInterval(() => {
       state.exerciseTimer = undefined
       save()
       render()
+      playBeep(2)
       toast(state.restTimerEnd ? 'Round complete. Rest started.' : 'Timed set complete. Next exercise.')
     }
     return
@@ -1437,6 +1475,7 @@ window.setInterval(() => {
     state.restTimerEnd = undefined
     save()
     render()
+    playBeep(1)
     toast('Rest complete. Next set.')
   }
 }, 1000)

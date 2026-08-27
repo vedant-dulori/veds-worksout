@@ -337,13 +337,18 @@ textarea:focus { border-color: var(--lime); }
 .empty p { font-size: 12px; margin: 7px 0 0; }
 .toast { position: fixed; z-index: 100; left: 50%; bottom: 25px; transform: translate(-50%,20px); background: var(--cream); color: var(--ink); padding: 13px 18px; display: flex; gap: 9px; align-items: center; font-weight: 600; font-size: 13px; opacity: 0; transition: .25s; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
 .toast.visible { opacity: 1; transform: translate(-50%,0); }
-.rest-timer { position: fixed; z-index: 50; right: 24px; bottom: 24px; min-width: 250px; background: var(--cream); color: var(--ink); box-shadow: 0 14px 45px rgba(0,0,0,.4); padding: 13px 14px; display: grid; grid-template-columns: 36px 1fr auto auto; align-items: center; gap: 10px; }
-.rest-timer > span { width: 34px; height: 34px; display: grid; place-items: center; background: var(--lime); }
-.rest-timer > div { display: flex; flex-direction: column; }
-.rest-timer small { font-size: 8px; font-weight: 800; letter-spacing: .13em; }
-.rest-timer strong { font: 800 20px 'Manrope'; }
-.rest-timer button { border: 0; background: #deddd4; color: var(--ink); padding: 6px 7px; font-size: 9px; font-weight: 700; cursor: pointer; }
-.rest-timer button:last-child { background: transparent; color: #6e706a; padding: 4px; }
+.rest-overlay { position: fixed; inset: 0; z-index: 60; background: rgba(10,11,9,.92); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 24px; }
+.rest-card { width: min(420px, 100%); background: var(--surface); border: 1px solid var(--line); padding: clamp(28px,6vw,44px) clamp(22px,5vw,36px); text-align: center; }
+.rest-card .eyebrow { text-align: center; }
+.rest-clock-big { display: block; font: 800 clamp(64px,20vw,96px) 'Manrope'; color: var(--lime); letter-spacing: -.03em; margin: 8px 0 26px; }
+.rest-actions { display: flex; gap: 10px; justify-content: center; margin-bottom: 30px; }
+.rest-actions button { border: 1px solid var(--line); background: transparent; color: var(--cream); padding: 12px 20px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.rest-actions button:first-child { border-color: var(--lime); color: var(--lime); }
+.rest-actions button:hover { border-color: var(--lime); color: var(--lime); }
+.up-next { border-top: 1px solid var(--line); padding-top: 22px; }
+.up-next small { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .15em; }
+.up-next h3 { font: 700 22px 'Manrope'; margin: 8px 0 6px; }
+.up-next p { color: var(--muted); font-size: 13px; }
 .exercise-timer { position: fixed; z-index: 55; right: 24px; bottom: 24px; min-width: 430px; background: #20241d; color: var(--cream); border: 1px solid #66762f; box-shadow: 0 14px 50px rgba(0,0,0,.5); padding: 14px 16px; display: grid; grid-template-columns: 12px 1fr auto auto auto auto; align-items: center; gap: 11px; }
 .timer-pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 5px rgba(200,240,77,.12); animation: timer-pulse 1.2s infinite; }
 .exercise-timer-copy { display: flex; flex-direction: column; }
@@ -536,7 +541,6 @@ textarea:focus { border-color: var(--lime); }
   .session-actions { grid-template-columns: 1fr; } .workout-gate { min-height: 330px; padding: 28px 18px; }
   .photo-drop { min-height: 220px; }
   .photo-grid { grid-template-columns: repeat(2,1fr); } .panel { padding: 18px; }
-  .rest-timer { right: 12px; left: 12px; bottom: calc(78px + env(safe-area-inset-bottom)); min-width: 0; }
   .exercise-timer { right: 12px; left: 12px; bottom: calc(78px + env(safe-area-inset-bottom)); min-width: 0; grid-template-columns: 10px 1fr auto; }
   .exercise-timer > button { grid-row: 2; }
   .exercise-timer > button:nth-of-type(1) { grid-column: 1 / 2; }
@@ -564,7 +568,7 @@ textarea:focus { border-color: var(--lime); }
   .focus-complete { grid-row: 1; }
   .workout-finished { padding-top: 52px; }
   .workout-finished h1 { font-size: 39px; }
-  .workout-mode .rest-timer, .workout-mode .exercise-timer { bottom: max(12px,env(safe-area-inset-bottom)); }
+  .workout-mode .exercise-timer { bottom: max(12px,env(safe-area-inset-bottom)); }
   .editor-overlay { padding: 0; place-items: stretch; }
   .plan-editor { width: 100%; max-height: 100svh; padding: 18px 12px max(18px,env(safe-area-inset-bottom)); border: 0; }
   .editor-plan-meta { grid-template-columns: 1fr; }
