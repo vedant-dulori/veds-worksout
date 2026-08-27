@@ -20,7 +20,7 @@ type WorkoutBlock = { id: string; name: string; focus: string; rounds: number }
 type Plan = { id: string; name: string; focus: string; duration: string; blocks: WorkoutBlock[]; exercises: Exercise[] }
 type SetLog = { weight: number; reps: number; completed: boolean }
 type Log = { exerciseId: string; sets: SetLog[]; completed: boolean }
-type Workout = { id: string; planId: string; date: string; logs: Log[]; note?: string }
+type Workout = { id: string; planId: string; date: string; logs: Log[]; note?: string; durationSeconds?: number }
 type CheckIn = { id: string; date: string; bodyWeight?: number; note: string; photoId: string; photoUrl?: string }
 type DraftSet = { weight: string; reps: string; completed: boolean }
 type State = {
@@ -45,6 +45,7 @@ type State = {
   compareWorkoutIdA?: string
   compareWorkoutIdB?: string
   restTimerEnd?: number
+  sessionStartedAt?: number
   exerciseTimer?: {
     end?: number
     remaining: number
@@ -173,6 +174,7 @@ function cloudDraft() {
     workoutView: state.workoutView,
     editingWorkoutId: state.editingWorkoutId,
     editingWorkoutDate: state.editingWorkoutDate,
+    sessionStartedAt: state.sessionStartedAt,
   }
 }
 
@@ -350,6 +352,17 @@ function restSeconds() {
 function restLabel(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
+function sessionElapsedSeconds() {
+  return state.sessionStartedAt ? Math.max(0, Math.floor((Date.now() - state.sessionStartedAt) / 1000)) : 0
+}
+function durationLabel(seconds: number) {
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = seconds % 60
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+    : `${minutes}:${String(secs).padStart(2, '0')}`
+}
 function exerciseTimerSeconds() {
   const timer = state.exerciseTimer
   if (!timer) return 0
@@ -433,7 +446,7 @@ function renderActiveWorkout() {
 
   if (!step) {
     app.innerHTML = `<div class="workout-mode">
-      <header class="workout-mode-header"><button data-step-nav="-1">← Review</button><span class="brand"><span class="brand-mark">${icon('bolt')}</span><span>REP<b>TRACK</b></span></span><span>${steps.length}/${steps.length}</span></header>
+      <header class="workout-mode-header"><button data-step-nav="-1">← Review</button><span class="brand"><span class="brand-mark">${icon('bolt')}</span><span>REP<b>TRACK</b></span></span><span class="header-stats"><b data-session-clock>${durationLabel(sessionElapsedSeconds())}</b><small>${steps.length}/${steps.length}</small></span></header>
       <main class="workout-finished">
         <div class="mode-toggle"><button data-workout-view="overview">Normal</button><button class="active" disabled>Workout</button></div>
         <span class="finish-mark">${icon('check')}</span><p class="eyebrow">SESSION COMPLETE</p><h1>Every round is done.</h1><p>Save the workout to add it to your progress history.</p>
@@ -459,7 +472,7 @@ function renderActiveWorkout() {
     <header class="workout-mode-header">
       <button data-save-draft>← Save & exit</button>
       <span class="brand"><span class="brand-mark">${icon('bolt')}</span><span>REP<b>TRACK</b></span></span>
-      <span>${completed}/${steps.length}</span>
+      <span class="header-stats"><b data-session-clock>${durationLabel(sessionElapsedSeconds())}</b><small>${completed}/${steps.length}</small></span>
     </header>
     <div class="workout-mode-progress"><span style="width:${progress}%"></span></div>
     <main class="focus-logger">
@@ -607,7 +620,7 @@ function renderWorkout() {
   const checkinMessage = now.getDay() === 1 ? 'Your weekly photo is due today' : `Next photo in ${daysUntilMonday} day${daysUntilMonday === 1 ? '' : 's'}`
 
   const sessionContent = isLogging
-    ? `<div class="session-progress"><span style="width:${progress}%"></span></div><p class="progress-label">${completedRounds} of ${totalRounds} rounds · ${completedSets} of ${totalSets} sets complete</p>
+    ? `<div class="session-progress"><span style="width:${progress}%"></span></div><p class="progress-label">${completedRounds} of ${totalRounds} rounds · ${completedSets} of ${totalSets} sets complete · <b data-session-clock>${durationLabel(sessionElapsedSeconds())}</b> elapsed</p>
        <div class="block-list">${blocks}</div>
        <label class="session-note"><span>SESSION NOTE <small>OPTIONAL</small></span><textarea id="workout-note" maxlength="240" placeholder="Energy, form, pain, or anything worth remembering...">${escapeHtml(state.workoutNote)}</textarea></label>
        <div class="session-actions"><button class="secondary" data-save-draft>${icon('calendar')} Save & finish later</button><button id="finish-workout" class="primary" ${completedSets ? '' : 'disabled'}>${icon('check')} Finish & save workout</button><button class="discard-session" data-discard-session>Discard this workout</button></div>`
@@ -752,7 +765,7 @@ function renderProgress() {
       return `<section class="history-block"><header><span>BLOCK ${blockIndex + 1}</span><strong>${block.name}</strong></header>${exercises}</section>`
     }).join('')
     const expanded = state.expandedWorkoutId === workout.id
-    return `<div class="history-item"><button class="history-row ${expanded ? 'expanded' : ''}" data-history="${workout.id}"><span class="history-icon">${icon('weight')}</span><span><strong>${workoutPlan.name}</strong><small>${formatDate(workout.date, { weekday: 'short', month: 'short', day: 'numeric' })}</small></span><span><strong>${workout.logs.length}/${workoutPlan.exercises.length}</strong><small>exercises</small></span><span><strong>${load.toLocaleString()} lb</strong><small>total volume</small></span><span class="history-chevron">${icon('next')}</span></button>${expanded ? `<div class="history-detail"><div class="history-detail-heading"><div><strong>Session breakdown</strong><small>Every completed round</small></div><div class="history-actions"><button data-edit-workout="${workout.id}">Edit</button><button data-delete-workout="${workout.id}">Delete</button></div></div>${details}${workout.note ? `<p class="history-note"><strong>Session note</strong>${escapeHtml(workout.note)}</p>` : ''}</div>` : ''}</div>`
+    return `<div class="history-item"><button class="history-row ${expanded ? 'expanded' : ''}" data-history="${workout.id}"><span class="history-icon">${icon('weight')}</span><span><strong>${workoutPlan.name}</strong><small>${formatDate(workout.date, { weekday: 'short', month: 'short', day: 'numeric' })}</small></span><span><strong>${workout.logs.length}/${workoutPlan.exercises.length}</strong><small>exercises</small></span><span><strong>${load.toLocaleString()} lb</strong><small>total volume</small></span><span>${workout.durationSeconds ? `<strong>${durationLabel(workout.durationSeconds)}</strong><small>duration</small>` : `<strong>—</strong><small>duration</small>`}</span><span class="history-chevron">${icon('next')}</span></button>${expanded ? `<div class="history-detail"><div class="history-detail-heading"><div><strong>Session breakdown</strong><small>Every completed round</small></div><div class="history-actions"><button data-edit-workout="${workout.id}">Edit</button><button data-delete-workout="${workout.id}">Delete</button></div></div>${details}${workout.note ? `<p class="history-note"><strong>Session note</strong>${escapeHtml(workout.note)}</p>` : ''}</div>` : ''}</div>`
   }).join('')
   const series = relevantWorkouts.slice(0, 8).reverse().map((workout) => ({ date: workout.date, value: metric(workout) }))
   const values = series.map((item) => item.value)
@@ -888,6 +901,7 @@ document.addEventListener('click', async (event) => {
         state.drafts = {}
         state.workoutNote = ''
         state.activeStepIndex = 0
+        state.sessionStartedAt = Date.now()
       }
       state.sessionStatus = 'active'
     }
@@ -930,6 +944,7 @@ document.addEventListener('click', async (event) => {
     state.activeStepIndex = 0
     state.sessionStatus = 'active'
     state.workoutView = 'focus'
+    state.sessionStartedAt = undefined
     save(); render(); toast('Editing saved workout.'); return
   }
   const deleteWorkoutButton = target.closest<HTMLElement>('[data-delete-workout]')
@@ -978,6 +993,7 @@ document.addEventListener('click', async (event) => {
       state.workoutView = 'focus'
       state.editingWorkoutId = undefined
       state.editingWorkoutDate = undefined
+      state.sessionStartedAt = Date.now()
     }
     state.sessionStatus = 'active'
     save(); render(); return
@@ -1074,6 +1090,7 @@ document.addEventListener('click', async (event) => {
     state.workoutView = 'focus'
     state.editingWorkoutId = undefined
     state.editingWorkoutDate = undefined
+    state.sessionStartedAt = undefined
     save(); toast('Workout discarded.'); render(); return
   }
   const historyButton = target.closest<HTMLElement>('[data-history]')
@@ -1173,12 +1190,18 @@ document.addEventListener('click', async (event) => {
     if (!logs.length) return
     const workoutDate = state.editingWorkoutDate ?? dayKey(now)
     const workoutId = state.editingWorkoutId ?? `workout-${workoutDate}-${active.id}-${crypto.randomUUID()}`
+    const durationSeconds = state.editingWorkoutId
+      ? state.workouts.find((item) => item.id === state.editingWorkoutId)?.durationSeconds
+      : state.sessionStartedAt
+        ? Math.max(0, Math.round((Date.now() - state.sessionStartedAt) / 1000))
+        : undefined
     const workout = {
       id: workoutId,
       planId: active.id,
       date: workoutDate,
       logs,
       note: state.workoutNote.trim() || undefined,
+      durationSeconds,
     }
     try {
       await saveCloudWorkout(workout)
@@ -1201,6 +1224,7 @@ document.addEventListener('click', async (event) => {
     state.workoutView = 'focus'
     state.editingWorkoutId = undefined
     state.editingWorkoutDate = undefined
+    state.sessionStartedAt = undefined
     save(); toast('Workout saved. Strong work.'); render()
   }
 })
@@ -1384,6 +1408,10 @@ async function initialize() {
 void initialize()
 
 window.setInterval(() => {
+  if (state.sessionStatus === 'active' && state.sessionStartedAt) {
+    const label = durationLabel(sessionElapsedSeconds())
+    document.querySelectorAll<HTMLElement>('[data-session-clock]').forEach((clock) => { clock.textContent = label })
+  }
   if (state.exerciseTimer) {
     const remaining = exerciseTimerSeconds()
     const clock = document.querySelector<HTMLElement>('[data-exercise-clock]')

@@ -14,9 +14,12 @@ create table if not exists public.workouts (
   performed_on date not null,
   logs jsonb not null check (jsonb_typeof(logs) = 'array'),
   note text not null default '',
+  duration_seconds integer,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.workouts add column if not exists duration_seconds integer;
 
 create index if not exists workouts_user_date_idx
 on public.workouts (user_id, performed_on desc);

@@ -6,6 +6,7 @@ export type CloudWorkout = {
   date: string
   logs: unknown[]
   note?: string
+  durationSeconds?: number
 }
 
 export type CloudCheckIn = {
@@ -84,7 +85,7 @@ export async function loadCloudData(defaultPlans: unknown[]) {
   const [{ data: settings, error: settingsError }, { data: workouts, error: workoutsError }, { data: checkIns, error: checkInsError }] =
     await Promise.all([
       client().from('user_settings').select('plans,draft').maybeSingle(),
-      client().from('workouts').select('id,plan_id,performed_on,logs,note').order('performed_on', { ascending: false }),
+      client().from('workouts').select('id,plan_id,performed_on,logs,note,duration_seconds').order('performed_on', { ascending: false }),
       client().from('check_ins').select('id,checked_in_on,body_weight,note,photo_path').order('checked_in_on', { ascending: false }),
     ])
 
@@ -120,6 +121,7 @@ export async function loadCloudData(defaultPlans: unknown[]) {
       date: workout.performed_on,
       logs: workout.logs,
       note: workout.note ?? undefined,
+      durationSeconds: workout.duration_seconds ?? undefined,
     })) satisfies CloudWorkout[],
     checkIns: signedCheckIns,
   }
@@ -141,6 +143,7 @@ export async function saveCloudWorkout(workout: CloudWorkout) {
     performed_on: workout.date,
     logs: workout.logs,
     note: workout.note ?? '',
+    duration_seconds: workout.durationSeconds ?? null,
   })
   if (error) throw error
 }
