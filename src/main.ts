@@ -223,21 +223,21 @@ function workoutSteps(workoutPlan: Plan) {
   })
 }
 function normalizeDrafts(drafts: State['drafts']) {
-  return Object.fromEntries(Object.entries(drafts).map(([exerciseId, exerciseDraft]) => [
-    exerciseId,
-    {
+  return Object.fromEntries(Object.entries(drafts ?? {}).flatMap(([exerciseId, exerciseDraft]) => {
+    if (!exerciseDraft || !Array.isArray(exerciseDraft.sets)) return []
+    return [[exerciseId, {
       ...exerciseDraft,
-      sets: exerciseDraft.sets.map((set) => ({ ...set, completed: set.completed ?? false })),
-    },
-  ]))
+      sets: exerciseDraft.sets.map((set) => ({ ...set, completed: set?.completed ?? false })),
+    }]]
+  }))
 }
 function normalizeWorkout(workout: Workout) {
   return {
     ...workout,
-    logs: workout.logs.map((log) => {
+    logs: (Array.isArray(workout.logs) ? workout.logs : []).map((log) => {
       const legacy = log as Log & { weight?: number }
       if (Array.isArray(legacy.sets)) {
-        return { ...legacy, sets: legacy.sets.map((set) => ({ ...set, completed: set.completed ?? true })) }
+        return { ...legacy, sets: legacy.sets.map((set) => ({ ...(set ?? {}), completed: set?.completed ?? true })) }
       }
       const exercise = plans.flatMap((item) => item.exercises).find((item) => item.id === log.exerciseId)
       return {
@@ -262,8 +262,9 @@ function previousSets(exercise: Exercise) {
 }
 function draft(exercise: Exercise) {
   const existing = state.drafts[exercise.id]
+  const existingSets = Array.isArray(existing?.sets) ? existing.sets : undefined
   const sets = Array.from({ length: exercise.sets }, (_, index) => {
-    if (existing?.sets[index]) return existing.sets[index]
+    if (existingSets?.[index]) return existingSets[index]
     const previous = previousSets(exercise)[index]
     return {
       weight: previous?.weight ? String(previous.weight) : '',
