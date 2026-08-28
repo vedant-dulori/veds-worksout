@@ -775,8 +775,12 @@ function renderProgress() {
       ? plans.find((item) => item.id === filterId)?.name ?? 'Selected plan'
       : 'All plans'
   const rows = filteredWorkouts.slice(0, 7).map((workout) => {
-    const workoutPlan = plans.find((item) => item.id === workout.planId)!
+    const workoutPlan = plans.find((item) => item.id === workout.planId)
     const load = workoutVolume(workout)
+    if (!workoutPlan) {
+      const expanded = state.expandedWorkoutId === workout.id
+      return `<div class="history-item"><button class="history-row ${expanded ? 'expanded' : ''}" data-history="${workout.id}"><span class="history-icon">${icon('weight')}</span><span><strong>Unknown plan</strong><small>${formatDate(workout.date, { weekday: 'short', month: 'short', day: 'numeric' })}</small></span><span><strong>${workout.logs.length}</strong><small>exercises</small></span><span><strong>${load.toLocaleString()} lb</strong><small>total volume</small></span><span>${workout.durationSeconds ? `<strong>${durationLabel(workout.durationSeconds)}</strong><small>duration</small>` : `<strong>—</strong><small>duration</small>`}</span><span class="history-chevron">${icon('next')}</span></button>${expanded ? `<div class="history-detail"><p class="history-note">This workout's plan was renamed or removed, so its exercise breakdown can't be shown.</p><div class="history-actions"><button data-delete-workout="${workout.id}">Delete</button></div></div>` : ''}</div>`
+    }
     const details = workoutPlan.blocks.map((block, blockIndex) => {
       const blockLogs = workout.logs.filter((log) =>
         workoutPlan.exercises.find((exercise) => exercise.id === log.exerciseId)?.blockId === block.id)
@@ -1327,16 +1331,23 @@ document.addEventListener('submit', async (event) => {
     const email = document.querySelector<HTMLInputElement>('#auth-email')?.value.trim() ?? ''
     const password = document.querySelector<HTMLInputElement>('#auth-password')?.value ?? ''
     renderLoading(action === 'sign-up' ? 'Creating your account...' : 'Loading your training...')
+    let nextSession
     try {
-      const nextSession = action === 'sign-up' ? await signUp(email, password) : await signIn(email, password)
-      if (!nextSession) {
-        renderAuth('Check your email to confirm the account, then sign in.')
-        return
-      }
-      session = nextSession
-      await loadUserData()
+      nextSession = action === 'sign-up' ? await signUp(email, password) : await signIn(email, password)
     } catch (error) {
       renderAuth(error instanceof Error ? error.message : 'Authentication failed.')
+      return
+    }
+    if (!nextSession) {
+      renderAuth('Check your email to confirm the account, then sign in.')
+      return
+    }
+    session = nextSession
+    try {
+      await loadUserData()
+    } catch (error) {
+      console.error('Unable to load cloud data after sign-in.', error)
+      renderAuth('Signed in, but cloud data could not be loaded. Check your connection.')
     }
     return
   }
