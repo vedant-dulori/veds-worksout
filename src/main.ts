@@ -213,7 +213,7 @@ function workoutSteps(workoutPlan: Plan) {
   return workoutPlan.blocks.flatMap((block, blockIndex) => {
     const exercises = workoutPlan.exercises.filter((exercise) => exercise.blockId === block.id)
     return Array.from({ length: block.rounds }, (_, roundIndex) =>
-      exercises.map((exercise, exerciseIndex): WorkoutStep => ({
+      exercises.filter((exercise) => roundIndex < exercise.sets).map((exercise, exerciseIndex): WorkoutStep => ({
         block,
         blockIndex,
         roundIndex,
@@ -291,7 +291,7 @@ function updateSetCompletion(exercise: Exercise, setIndex: number, completed: bo
   const blockIndex = activePlan.blocks.findIndex((block) => block.id === exercise.blockId)
   const block = activePlan.blocks[blockIndex]
   const blockExercises = activePlan.exercises.filter((item) => item.blockId === block.id)
-  const roundComplete = blockExercises.every((item) => draft(item).sets[setIndex]?.completed)
+  const roundComplete = blockExercises.every((item) => setIndex >= item.sets || draft(item).sets[setIndex]?.completed)
   if (!roundComplete) return
 
   const nextKey = setIndex + 1 < block.rounds
@@ -491,7 +491,7 @@ function renderActiveWorkout() {
   const current = draft(step.exercise).sets[step.roundIndex]
   const previous = previousSets(step.exercise)[step.roundIndex]
   const nextStep = steps[state.activeStepIndex + 1]
-  const blockExercises = active.exercises.filter((exercise) => exercise.blockId === step.block.id)
+  const blockExercises = active.exercises.filter((exercise) => exercise.blockId === step.block.id && step.roundIndex < exercise.sets)
   const roundCompleted = blockExercises.filter((exercise) => draft(exercise).sets[step.roundIndex]?.completed).length
   const previousResult = previous?.weight
     ? `${previous.weight} lb × ${previous.reps}${step.exercise.timed ? ' sec' : ''}`
@@ -582,7 +582,7 @@ function renderWorkout() {
   const completedRounds = active.blocks.reduce((sum, block) => {
     const blockExercises = active.exercises.filter((exercise) => exercise.blockId === block.id)
     return sum + Array.from({ length: block.rounds }).filter((_, roundIndex) =>
-      blockExercises.every((exercise) => draft(exercise).sets[roundIndex]?.completed)).length
+      blockExercises.every((exercise) => roundIndex >= exercise.sets || draft(exercise).sets[roundIndex]?.completed)).length
   }, 0)
   const isLogging = state.sessionStatus === 'active'
   const hasSavedDraft = state.sessionStatus === 'paused'
@@ -593,7 +593,7 @@ function renderWorkout() {
     const blockExercises = active.exercises.filter((exercise) => exercise.blockId === block.id)
     return Array.from({ length: block.rounds }, (_, roundIndex) => ({
       key: `${block.id}:${roundIndex}`,
-      complete: blockExercises.every((exercise) => draft(exercise).sets[roundIndex]?.completed),
+      complete: blockExercises.every((exercise) => roundIndex >= exercise.sets || draft(exercise).sets[roundIndex]?.completed),
     }))
   }).find((round) => !round.complete)?.key
   const expandedRoundKey = state.expandedRoundKey ?? firstIncompleteRound
@@ -620,20 +620,21 @@ function renderWorkout() {
     const blockExercises = active.exercises.filter((exercise) => exercise.blockId === block.id)
     const rounds = Array.from({ length: block.rounds }, (_, roundIndex) => {
       const roundKey = `${block.id}:${roundIndex}`
-      const completeCount = blockExercises.filter((exercise) => draft(exercise).sets[roundIndex]?.completed).length
-      const roundComplete = completeCount === blockExercises.length
+      const roundExercises = blockExercises.filter((exercise) => roundIndex < exercise.sets)
+      const completeCount = roundExercises.filter((exercise) => draft(exercise).sets[roundIndex]?.completed).length
+      const roundComplete = completeCount === roundExercises.length
       const expanded = roundKey === expandedRoundKey
       return `<section class="round-card ${roundComplete ? 'complete' : ''} ${expanded ? 'expanded' : ''}">
         <button class="round-header" data-round="${roundKey}">
           <span>${roundComplete ? icon('check') : roundIndex + 1}</span>
-          <div><small>ROUND ${roundIndex + 1} OF ${block.rounds}</small><strong>${blockExercises.map((exercise) => exercise.name).join(' → ')}</strong></div>
-          <div><b>${completeCount}/${blockExercises.length}</b><small>done</small>${icon('next')}</div>
+          <div><small>ROUND ${roundIndex + 1} OF ${block.rounds}</small><strong>${roundExercises.map((exercise) => exercise.name).join(' → ')}</strong></div>
+          <div><b>${completeCount}/${roundExercises.length}</b><small>done</small>${icon('next')}</div>
         </button>
-        ${expanded ? `<div class="round-body">${blockExercises.map((exercise, exerciseIndex) => renderCircuitExercise(exercise, roundIndex, exerciseIndex)).join('')}</div>` : ''}
+        ${expanded ? `<div class="round-body">${roundExercises.map((exercise, exerciseIndex) => renderCircuitExercise(exercise, roundIndex, exerciseIndex)).join('')}</div>` : ''}
       </section>`
     }).join('')
     const blockRoundsDone = Array.from({ length: block.rounds }).filter((_, roundIndex) =>
-      blockExercises.every((exercise) => draft(exercise).sets[roundIndex]?.completed)).length
+      blockExercises.every((exercise) => roundIndex >= exercise.sets || draft(exercise).sets[roundIndex]?.completed)).length
     const isComplete = blockRoundsDone === block.rounds
     return `<section class="workout-block ${isComplete ? 'complete' : ''}">
       <header class="block-header">
